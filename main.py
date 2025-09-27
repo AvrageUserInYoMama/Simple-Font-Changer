@@ -5,10 +5,13 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from datetime import datetime
 
+# User requested token for scripts
+# mvy9amhku0l3b2kq0cemzduy6czqm8
+
 class FontManagerApp:
     """
-    A GUI application to replace fonts or undo replacements, featuring a mode-based UI
-    and intelligent folder selection.
+    A GUI application to replace fonts or undo replacements, featuring a mode-based UI,
+    intelligent folder selection, and persistent directory history.
     """
     def __init__(self, root):
         self.root = root
@@ -16,36 +19,39 @@ class FontManagerApp:
         self.root.geometry("600x500")
         self.root.resizable(False, True)
 
+        # --- Variables ---
         self.source_file_path_var = tk.StringVar()
         self.target_folder_path_var = tk.StringVar()
         self.selected_backup_var = tk.StringVar()
         
         self.source_folder_name = "PLACE YOUR CUSTOM FONT HERE"
+        self.history_filename = "font_manager_history.txt"
         self.script_dir = self._get_script_directory()
         if not self.script_dir:
             messagebox.showerror("Critical Error", "Could not determine the script's directory.")
             root.destroy()
             return
+        
         self.source_folder_path = os.path.join(self.script_dir, self.source_folder_name)
+        self.history_filepath = os.path.join(self.script_dir, self.history_filename)
         
         self.last_source_status = None
         self.current_source_file = None
+        self.directory_history = self._load_history()
 
-
+        # --- GUI Layout ---
         self._setup_gui()
         
-
+        # --- Start monitor and show main menu ---
         self.monitor_source_folder()
         self.show_frame(self.main_menu_frame)
 
     def _setup_gui(self):
         """Creates and arranges all the GUI widgets and frames."""
-
         container = ttk.Frame(self.root, padding=15)
         container.pack(fill=tk.BOTH, expand=True)
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
-
 
         self.main_menu_frame = ttk.Frame(container)
         self.replace_frame = ttk.Frame(container)
@@ -54,11 +60,9 @@ class FontManagerApp:
         for frame in (self.main_menu_frame, self.replace_frame, self.undo_frame):
             frame.grid(row=0, column=0, sticky='nsew')
 
-
         self._create_main_menu_frame()
         self._create_replace_frame()
         self._create_undo_frame()
-
 
         log_frame = ttk.LabelFrame(self.root, text="Log", padding=(10, 5))
         log_frame.pack(side="bottom", fill="x", expand=False, padx=15, pady=(0, 15))
@@ -66,17 +70,15 @@ class FontManagerApp:
         self.log_widget.pack(fill="x", expand=True)
         
         style = ttk.Style(self.root)
-        style.configure('Accent.TButton', foreground='Green', background='#4CAF50')
+        style.configure('Accent.TButton', foreground='green', background='#4CAF50')
 
     def show_frame(self, frame_to_show):
         """Raises the selected frame to the top."""
         frame_to_show.tkraise()
 
     def _create_main_menu_frame(self):
-        """Creates the initial screen with task choices."""
         frame = self.main_menu_frame
         frame.columnconfigure(0, weight=1)
-        frame.rowconfigure((0, 1, 2), weight=1)
         
         ttk.Label(frame, text="What would you like to do?", font=("Helvetica", 14)).pack(pady=20)
         
@@ -87,12 +89,11 @@ class FontManagerApp:
         undo_btn.pack(fill='x', ipady=10, pady=5, padx=50)
 
     def _create_replace_frame(self):
-        """Creates the UI for the 'Replace Fonts' task."""
         frame = self.replace_frame
         
         ttk.Label(frame, text="Replace Fonts", font=("Helvetica", 12, "bold")).pack(pady=(0, 10))
         
-        source_frame = ttk.LabelFrame(frame, text="1. Source Font File", padding=10)
+        source_frame = ttk.LabelFrame(frame, text="1. Source Font File (Live Status)", padding=10)
         source_frame.pack(fill='x', pady=5)
         ttk.Entry(source_frame, textvariable=self.source_file_path_var, state='readonly').pack(fill='x')
 
@@ -106,16 +107,18 @@ class FontManagerApp:
         ttk.Button(frame, text="« Back to Menu", command=lambda: self.show_frame(self.main_menu_frame)).pack(fill='x', ipady=2)
 
     def _create_undo_frame(self):
-        """Creates the UI for the 'Undo / Restore' task."""
         frame = self.undo_frame
         
         ttk.Label(frame, text="Undo / Restore", font=("Helvetica", 12, "bold")).pack(pady=(0, 10))
         
-        target_frame = ttk.LabelFrame(frame, text="1. Select Target Folder to Scan", padding=10)
+        target_frame = ttk.LabelFrame(frame, text="1. Select Target Folder (from History or Browse)", padding=10)
         target_frame.pack(fill='x', pady=5)
-        target_entry = ttk.Entry(target_frame, textvariable=self.target_folder_path_var, state='readonly')
-        target_entry.pack(side='left', fill='x', expand=True)
-        ttk.Button(target_frame, text="Browse & Scan...", command=self.select_target_folder).pack(side='right', padx=(5,0))
+        
+        self.history_combobox = ttk.Combobox(target_frame, textvariable=self.target_folder_path_var, values=self.directory_history)
+        self.history_combobox.pack(side='left', fill='x', expand=True)
+        self.history_combobox.bind("<<ComboboxSelected>>", self._on_history_select)
+        
+        ttk.Button(target_frame, text="Browse...", command=self.select_target_folder).pack(side='right', padx=(5,0))
 
         backup_frame = ttk.LabelFrame(frame, text="2. Choose Backup to Restore", padding=10)
         backup_frame.pack(fill='x', pady=5)
@@ -128,6 +131,34 @@ class FontManagerApp:
         self.undo_button.config(state='disabled')
         ttk.Button(frame, text="« Back to Menu", command=lambda: self.show_frame(self.main_menu_frame)).pack(fill='x', ipady=2)
     
+    # --- HISTORY & CORE LOGIC ---
+    def _load_history(self):
+        if not os.path.exists(self.history_filepath):
+            return []
+        try:
+            with open(self.history_filepath, 'r') as f:
+                # Read lines and strip any extra whitespace/newlines
+                return [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            self.log(f"Warning: Could not load history file. {e}")
+            return []
+
+    def _save_to_history(self, directory_path):
+        if directory_path not in self.directory_history:
+            self.directory_history.insert(0, directory_path) # Add new paths to the top
+            try:
+                with open(self.history_filepath, 'w') as f:
+                    f.write("\n".join(self.directory_history))
+                # Update the combobox in the undo frame with the new list
+                self.history_combobox['values'] = self.directory_history
+            except Exception as e:
+                self.log(f"Warning: Could not save to history file. {e}")
+
+    def _on_history_select(self, event):
+        """Triggered when a user selects a folder from the history combobox."""
+        self.log(f"History folder selected: {self.target_folder_path_var.get()}")
+        self.scan_for_backups()
+
     def log(self, message):
         self.log_widget.config(state='normal')
         self.log_widget.insert(tk.END, message + "\n")
@@ -140,14 +171,12 @@ class FontManagerApp:
         except NameError: return os.path.dirname(os.path.abspath(sys.argv[0]))
 
     def monitor_source_folder(self):
-
         if not os.path.isdir(self.source_folder_path):
             try:
                 os.makedirs(self.source_folder_path)
                 self.log(f"Source folder created at: {self.source_folder_path}")
-            except Exception as e:
-                self.source_file_path_var.set(f"CRITICAL: Failed to create source folder.")
-                return
+            except Exception: pass # Fail silently if creation fails, will be caught later
+        # ... (rest of the function is unchanged)
         try: source_files = [f for f in os.listdir(self.source_folder_path) if os.path.isfile(os.path.join(self.source_folder_path, f))]
         except Exception:
             self.source_file_path_var.set("CRITICAL: Cannot access source folder.")
@@ -170,11 +199,9 @@ class FontManagerApp:
         self.root.after(5000, self.monitor_source_folder)
 
     def select_target_folder(self):
-        """Opens a dialog to select the target directory and auto-corrects if 'Fonts.old' is chosen."""
         folder_selected = filedialog.askdirectory(title="Select the folder")
         
         if folder_selected:
-
             if os.path.basename(folder_selected) == "Fonts.old":
                 self.log("💡 'Fonts.old' was selected. Auto-correcting to the parent folder.")
                 folder_selected = os.path.dirname(folder_selected)
@@ -184,7 +211,6 @@ class FontManagerApp:
             self.scan_for_backups()
 
     def scan_for_backups(self):
-
         self.backup_menu.config(state='disabled')
         self.undo_button.config(state='disabled')
         self.selected_backup_var.set("No backups found")
@@ -207,7 +233,6 @@ class FontManagerApp:
         self.log("No valid backups found in 'Fonts.old' folder.")
 
     def run_replacement_process(self):
-
         if not self.current_source_file: messagebox.showerror("Error", "Source font is not ready."); return
         target_folder = self.target_folder_path_var.get()
         if not target_folder or not os.path.isdir(target_folder): messagebox.showerror("Error", "Please select a valid target folder first."); return
@@ -227,6 +252,7 @@ class FontManagerApp:
                     replaced_count += 1
             self.log(f"Successfully replaced {replaced_count} file(s).")
             messagebox.showinfo("Success", f"Process finished! Replaced {replaced_count} file(s).")
+            self._save_to_history(target_folder) # Save directory on success
             self.scan_for_backups()
         except Exception as e: messagebox.showerror("Error", f"Replacement failed: {e}"); self.log(f"ERROR: {e}")
 
