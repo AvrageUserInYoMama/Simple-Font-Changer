@@ -18,5 +18,19 @@ When The Program Has Finished, A New Folder Will Be In The Directory Containing 
 
 DO NOT RELY ON IT!
 
-If you use the script again in the same directory, the old fonts will be replaced with the previous fonts, not the original fonts.
-Keep Backups Of The Fonts Just In Case.
+
+# **How To Use**
+Open Main.py, this should create a folder called "PLACE YOUR CUSTOM FONT HERE". 
+Place your font in the folder (ONLY ONE) 
+Once Main.py has loaded press "Replace Fonts" 
+Press Browse or pate your directory of fonts you want to replace
+Then press "Preform Replacement" 
+
+# **How To Undo**
+Open Main.py
+Press Undo
+There should be a list of all the folders you chnaged
+If not press Browse/Scan and find The folder you changed
+You will see all the backups
+Press on any one of them
+Press confirm
